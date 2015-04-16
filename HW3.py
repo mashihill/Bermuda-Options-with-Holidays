@@ -25,7 +25,10 @@ def BOPF(data):
     exercisableDays = tradingDuration(data['T2'], data['T3'])
     yearTradingDays = tradingDuration(data['T0'][0:5]+'01-01', data['T0'][0:5]+'12-31')
 
-    print 'hi', tradingDuration('2015-04-15', '2015-04-16')
+    print ''
+    print 'totalTradingDays', totalTradingDays
+    print 'exercisableDays', exercisableDays
+    print 'yearTradingDays', yearTradingDays
 
     # Initial value
     S = data['S']
@@ -57,46 +60,45 @@ def BOPF(data):
     EuroCall = S * CallSum1 - X * exp(-r_ * n) * CallSum2
     EuroPut = X * exp(-r_ * n) * PutSum2 - S * PutSum1
 
+    print 'eruocall: ', EuroCall
 
     # America put
     # Initialize Value at time t
     PutValueFlow = [max(X - (S * (u ** (n-i)) * (d ** i)), 0) for i in range(n+1)]
+    CallValueFlow = [max((S * (u ** (n-i)) * (d ** i)) - X, 0) for i in range(n+1)]
 
-    print 'exercisableDays', exercisableDays
     # Run backward to time 0
-    exercisableDays -= 1
     count = 0
     for time in reversed(range(n)):
-        print time
         count += 1
+        #print '-time: ', time
         # Payoff of early exercise
-        EarlyExercise = [max(X - (S * (u ** (time-i)) * (d ** i)), 0) for
-                         i in range(time+1)]
+        PutEarlyExercise = [max(X - (S * (u ** (time-i)) * (d ** i)), 0) for i in range(time+1)]
+        CallEarlyExercise = [max((S * (u ** (time-i)) * (d ** i)) - X, 0) for i in range(time+1)]
+
         # Continuation value
-        PutValueFlow = [((p * PutValueFlow[i] + (1-p) * PutValueFlow[i+1]) / R) for
-                     i in range(time+1)]
+        PutValueFlow = [((p * PutValueFlow[i] + (1-p) * PutValueFlow[i+1]) / R) for i in range(time+1)]
+        CallValueFlow = [((p * CallValueFlow[i] + (1-p) * CallValueFlow[i+1]) / R) for i in range(time+1)]
 
         # Find the larger value
-        #if (time in range(n - exercisableDays * m, n) and (time % 2 == 1)):
-        #if (count < exercisableDays * m) and (time % 2 == 0):
-        if (count <= exercisableDays * m) :
-            print 'hi'
-            PutValueFlow = [max(EarlyExercise[i], PutValueFlow[i]) for
-                         i in range(len(PutValueFlow))]
+        if ((count < (exercisableDays * m)) and (count % m == 0)):
+            #print '-- american time', time
+            PutValueFlow = [max(PutEarlyExercise[i], PutValueFlow[i]) for i in range(len(PutValueFlow))]
+            CallValueFlow = [max(CallEarlyExercise[i], CallValueFlow[i]) for i in range(len(CallValueFlow))]
+        else:
+            continue
+
+    print PutValueFlow
 
 
     # Output Information
-
-    outputs = [ ('Bermuda Call', str(EuroCall)),
-               ('Bermuda Put', str(PutValueFlow[0]))]
+    outputs = [ ('Bermuda Call', str(CallValueFlow[0])), ('Bermuda Put', str(PutValueFlow[0]))]
 
     # Aligned output
-    print "S=%r, X=%r, s=%r%%, t=%r, n=%r, r=%r %%:" % (S, X, data['s'],
-                                                        t, n, data['r'])
+    print "S=%r, X=%r, s=%r%%, t=%r, n=%r, r=%r %%:" % (S, X, data['s'], t, n, data['r'])
     for output in outputs:
         print "- {item:13}: {value[0]:>4}.{value[1]:<12}".format(
-              item=output[0], value=output[1].split('.') if
-              '.' in output[1] else (output[1], '0'))
+              item=output[0], value=output[1].split('.') if '.' in output[1] else (output[1], '0'))
 
 
 import sys
@@ -109,6 +111,10 @@ if __name__ == '__main__':
         for test in data:
             BOPF(test)
         #print "~~ end ~~"
+        print ''
+        print 'Answer: The call price is about 8.4471, and the put price is about 3.4471.' 
+        print 'Suppose we have the same parameters as above except that r = 10%.' 
+        print 'Then the call price is about 9.4205, and the put price is about 2.9370'
     else:
         print 'This requires an input file.  Please select one from the data \
                directory. (e.g. python HW3.py ./data)'
