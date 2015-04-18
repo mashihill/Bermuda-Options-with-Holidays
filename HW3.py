@@ -80,8 +80,6 @@ def BOPF(data):
     #print '--Initial PutValueFlow', PutValueFlow
 
     # Run backward to time 0
-    #holidayPeriodsWent = 0
-    #print 'aliveDuration(reverse): ', aliveDuration[::-1]
     for index, day in enumerate(aliveDuration[::-1]):
         #print 'index: ', index, 'day:', day
         for day_period in reversed(range(m)):
