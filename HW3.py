@@ -6,90 +6,142 @@ from math import *
 import scipy.stats
 import datetime
 
-def tradingDuration(startDate, endDate):
+def dayGenerate(startDate, endDate):
 
     startDate = [ int(x) for x in startDate.split('-') ]
     endDate = [ int(x) for x in endDate.split('-') ]
     t0 = datetime.date(*startDate)
     t1 = datetime.date(*endDate)
-    daygenerator = (t0 + datetime.timedelta(x + 1) for x in xrange((t1 - t0).days))
+    daylist = [t0 + datetime.timedelta(x) for x in xrange((t1 - t0).days + 1)]
+    #duration = sum(1 for day in daygenerator if day.weekday() < 5) 
+
+    return daylist
+
+def noHolidayDays(startDate, endDate):
+    startDate = [ int(x) for x in startDate.split('-') ]
+    endDate = [ int(x) for x in endDate.split('-') ]
+    t0 = datetime.date(*startDate)
+    t1 = datetime.date(*endDate)
+    daygenerator = (t0 + datetime.timedelta(x) for x in xrange((t1 - t0).days + 1))
     duration = sum(1 for day in daygenerator if day.weekday() < 5) 
-    duration += 1
 
     return duration
 
 
+def holidayBefore(startDate, endDate):
+
+    daygenerator = (startDate + datetime.timedelta(x) for x in xrange((endDate - startDate).days))
+
+    return sum(1 for day in daygenerator if day.weekday() >= 5) 
+
+
 def BOPF(data):
 
-    totalTradingDays = tradingDuration(data['T0'], data['T1'])
-    exercisableDays = tradingDuration(data['T2'], data['T3'])
-    yearTradingDays = tradingDuration(data['T0'][0:5]+'01-01', data['T0'][0:5]+'12-31')
+    aliveDuration = dayGenerate(data['T0'], data['T1'])
+    exercisableDuration = dayGenerate(data['T2'], data['T3'])
+    yearDuration = dayGenerate(data['T0'][0:5]+'01-01', data['T0'][0:5]+'12-31')
+    aliveTradingDuration = noHolidayDays(data['T0'], data['T1'])
+    exercisableTradingDuration = noHolidayDays(data['T2'], data['T3'])
+    yearTradingDuration = noHolidayDays(data['T0'][0:5]+'01-01', data['T0'][0:5]+'12-31')
 
-    print ''
-    print 'totalTradingDays', totalTradingDays
-    print 'exercisableDays', exercisableDays
-    print 'yearTradingDays', yearTradingDays
 
     # Initial value
     S = data['S']
     X = data['X']
     m = data['m']
-    t = float(totalTradingDays) / yearTradingDays
-    n = totalTradingDays * m 
+    t = float(len(aliveDuration)) / len(yearDuration)
+    t_ = float(aliveTradingDuration) / yearTradingDuration
+    n = len(aliveDuration) * m 
+    n_ = aliveTradingDuration * m 
+    ndiff = n - n_
+    print 'n', n
     s = data['s'] / 100  # convert from percentage to decimal
+    #s = s * sqrt((365 / yearTradingDuration) * (float(aliveTradingDuration) / len(aliveDuration))) 
+    
     r = data['r'] / 100
-    u = exp(s * sqrt(t / n))
-    d = 1 / u   # d = exp(-s * sqrt(t / n))
+    #u = exp(s * sqrt(t / n))
+    u = exp(s * sqrt(t_ / n_))
+    d = 1 / u  # d = exp(-s * sqrt(t / n))
     r_ = r * t / n
-    R = exp(r_)
-    a = ceil(log(X / (S * (d ** n))) / log(u / d))  # Smallest int S_T >= X
-    p = (R - d) / (u - d)  # Risk-neutral P
-
-    # European Options
-    CallSum1 = CallSum2 = 0
-    PutSum1 = PutSum2 = 0
-
-    for _ in range(int(a), n):
-        CallSum1 += scipy.stats.binom.pmf(_, n, p * u / R)
-        CallSum2 += scipy.stats.binom.pmf(_, n, p)
-
-    for _ in range(int(a)):
-        PutSum1 += scipy.stats.binom.pmf(_, n, p * u / R)
-        PutSum2 += scipy.stats.binom.pmf(_, n, p)
-
-    EuroCall = S * CallSum1 - X * exp(-r_ * n) * CallSum2
-    EuroPut = X * exp(-r_ * n) * PutSum2 - S * PutSum1
-
-    print 'eruocall: ', EuroCall
+    inR = exp(r_)
+    p = (inR - d) / (u - d)  # Risk-neutral P
 
     # America put
     # Initialize Value at time t
-    PutValueFlow = [max(X - (S * (u ** (n-i)) * (d ** i)), 0) for i in range(n+1)]
-    CallValueFlow = [max((S * (u ** (n-i)) * (d ** i)) - X, 0) for i in range(n+1)]
+    totalHper = m * (holidayBefore(aliveDuration[0], aliveDuration[-1]))
+    print '--totalHper', totalHper
+    choose = n-totalHper 
+    print '--choose1', choose
+
+    PutValueFlow = [max(X - (S * (u ** (choose-i)) * (d ** i) * (inR ** totalHper)), 0) for i in range(choose+1)]
+    CallValueFlow = [max((S * (u ** (choose-i)) * (d ** i) * (inR ** totalHper)) - X, 0) for i in range(choose+1)]
+    #PutValueFlow = [max(X - (S * (u ** (choose-i)) * (d ** i) ), 0) for i in range(choose+1)]
+    #CallValueFlow = [max((S * (u ** (choose-i)) * (d ** i) ) - X, 0) for i in range(choose+1)]
+    #print '--Initial PutValueFlow', PutValueFlow
 
     # Run backward to time 0
-    count = 0
-    for time in reversed(range(n)):
-        count += 1
-        #print '-time: ', time
-        # Payoff of early exercise
-        PutEarlyExercise = [max(X - (S * (u ** (time-i)) * (d ** i)), 0) for i in range(time+1)]
-        CallEarlyExercise = [max((S * (u ** (time-i)) * (d ** i)) - X, 0) for i in range(time+1)]
+    #holidayPeriodsWent = 0
+    #print 'aliveDuration(reverse): ', aliveDuration[::-1]
+    for index, day in enumerate(aliveDuration[::-1]):
+        #print 'index: ', index, 'day:', day
+        for day_period in reversed(range(m)):
+            period = (len(aliveDuration) - index - 1) * m + day_period
+            #print '--period = ', period
+            hper = m * holidayBefore(aliveDuration[0], day) 
+            #print 'hper', hper
 
-        # Continuation value
-        PutValueFlow = [((p * PutValueFlow[i] + (1-p) * PutValueFlow[i+1]) / R) for i in range(time+1)]
-        CallValueFlow = [((p * CallValueFlow[i] + (1-p) * CallValueFlow[i+1]) / R) for i in range(time+1)]
+            if day.weekday() < 5:  # Weekday
 
-        # Find the larger value
-        if ((count < (exercisableDays * m)) and (count % m == 0)):
-            #print '-- american time', time
-            PutValueFlow = [max(PutEarlyExercise[i], PutValueFlow[i]) for i in range(len(PutValueFlow))]
-            CallValueFlow = [max(CallEarlyExercise[i], CallValueFlow[i]) for i in range(len(CallValueFlow))]
-        else:
-            continue
+                # Payoff of early exercise
+                choose = period - hper
+                #print '--choose ', choose
+                PutEarlyExercise = [max(X - (S * (u ** (choose-i)) * (d ** i) *  
+                                   (inR ** hper)), 0) for i in range(choose+1)]
+                CallEarlyExercise = [max((S * (u ** (choose-i)) * (d ** i) * 
+                                    ( inR ** hper)) - X, 0) for i in range(choose+1)]
+                #PutEarlyExercise = [max(X - (S * (u ** (choose-i)) * (d ** i)), 0) for i in range(choose+1)]
+                #CallEarlyExercise = [max((S * (u ** (choose-i)) * (d ** i)) - X, 0) for i in range(period-hper+1)]
 
-    print PutValueFlow
+                #print '-- ', index, 'PutEarlyExercise', PutEarlyExercise
+                # Continuation value
+                PutValueFlow = [((p * PutValueFlow[i] + (1-p) * PutValueFlow[i+1]) / inR) for i in range(choose+1)]
+                CallValueFlow = [((p * CallValueFlow[i] + (1-p) * CallValueFlow[i+1]) / inR) for i in range(choose+1)]
+                #print '-- ', index, 'PutValueFlow', PutValueFlow
 
+                # Find the larger value
+                if (((day + datetime.timedelta(-1)) in exercisableDuration) and day_period == 0 \
+                      and (day + datetime.timedelta(-1)).weekday() < 5 ):
+                    #print '---- in T2T3 pick max'
+                    PutValueFlow = [max(PutEarlyExercise[i], PutValueFlow[i]) for i in range(len(PutValueFlow))]
+                    CallValueFlow = [max(CallEarlyExercise[i], CallValueFlow[i]) for i in range(len(CallValueFlow))]
+
+            else:  # Holiday
+                PutValueFlow = [ (PutValueFlow[i] / inR) for i in range(len(PutValueFlow))]
+                CallValueFlow = [ (CallValueFlow[i] / inR) for i in range(len(CallValueFlow))]
+
+                #print '-- ', index, 'PutValueFlow', PutValueFlow
+
+                if (day_period == 0 and \
+                    ((day + datetime.timedelta(-1)) in exercisableDuration)) and \
+                    ((day + datetime.timedelta(-1)).weekday() < 5):
+                    choose = period-hper
+                    PutEarlyExercise = [max(X - (S * (u ** (choose-i)) * (d ** i) *  
+                                       (inR ** hper)), 0) for i in range(choose+1)]
+                    CallEarlyExercise = [max((S * (u ** (choose-i)) * (d ** i) *  
+                                        (inR ** hper)) - X, 0) for i in range(choose+1)]
+                    #PutEarlyExercise = [max(X - (S * (u ** (choose-i)) * (d ** i)), 0) for i in range(choose+1)]
+                    #CallEarlyExercise = [max((S * (u ** (choose-i)) * (d ** i)) - X, 0) for i in range(choose+1)]
+
+                    PutValueFlow = [max(PutEarlyExercise[i], PutValueFlow[i]) for i in range(len(PutValueFlow))]
+                    CallValueFlow = [max(CallEarlyExercise[i], CallValueFlow[i]) for i in range(len(CallValueFlow))]
+                    #print '-- holiday end', index, 'PutValueFlow', PutValueFlow
+                    #print '-- holiday end', index, 'PutEarlyExercise', PutEarlyExercise
+        #print PutValueFlow
+
+
+
+
+    print 'hoho', PutValueFlow
 
     # Output Information
     outputs = [ ('Bermuda Call', str(CallValueFlow[0])), ('Bermuda Put', str(PutValueFlow[0]))]
