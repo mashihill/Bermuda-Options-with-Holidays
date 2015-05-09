@@ -43,16 +43,19 @@ def BOPF(data):
     exercisableTradingDuration = noHolidayDays(data['T2'], data['T3'])
     yearTradingDuration = noHolidayDays(data['T0'][0:5]+'01-01', data['T0'][0:5]+'12-31')
 
+
     # Initial value
     S = data['S']
     X = data['X']
     m = data['m']
     t = float(len(aliveDuration)) / len(yearDuration)
     t_ = float(aliveTradingDuration) / yearTradingDuration
-    n = len(aliveDuration) * m 
-    n_ = aliveTradingDuration * m 
+    n = len(aliveDuration) * m
+    n_ = aliveTradingDuration * m
     s = data['s'] / 100  # convert from percentage to decimal
-    
+ 
+    print n, n_, t, t_
+ 
     r = data['r'] / 100
     u = exp(s * sqrt(t_ / n_))
     d = 1 / u  # d = exp(-s * sqrt(t / n))
@@ -60,22 +63,21 @@ def BOPF(data):
     R = exp(r_)
     p = (R - d) / (u - d)  # Risk-neutral P
 
-    print R, p
-    print 'nn_tt_', n, n_, t, t_
-
     # Initialize Value at time t
     totalHper = m * (holidayBefore(aliveDuration[0], aliveDuration[-1]))
-    choose = n-totalHper 
+    choose = n-totalHper
 
     PutValueFlow = [max(X - (S * (u ** (choose-i)) * (d ** i) * (R ** totalHper)), 0) for i in range(choose+1)]
     CallValueFlow = [max((S * (u ** (choose-i)) * (d ** i) * (R ** totalHper)) - X, 0) for i in range(choose+1)]
+
+    #print PutValueFlow
+    #print CallValueFlow
 
     # Run backward to time 0
     for index, day in enumerate(aliveDuration[::-1]):
         for day_period in reversed(range(m)):
             period = (len(aliveDuration) - index - 1) * m + day_period
             hper = m * holidayBefore(aliveDuration[0], day) 
-            print PutValueFlow
 
             if day.weekday() < 5:  # Weekday
 
